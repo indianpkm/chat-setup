@@ -1,0 +1,258 @@
+// =============================================================================
+// TeaTimeChat — Production Prisma Schema
+// =============================================================================
+// Key design choices:
+//   - UUIDs for all primary keys (no sequential integer leakage)
+//   - Soft-delete on messages (deletedAt, content wiped)
+//   - Messages store ONLY ciphertext + nonce (E2E encrypted, server sees nothing)
+//   - Cursor-based pagination via (conversationId, createdAt) compound index
+//   - ConversationParticipant uses a composite PK to prevent duplicate joins
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  ONLINE
+  OFFLINE
+  AWAY
+}
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum ContentType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  FILE
+  SYSTEM
+}
+
+enum CallType {
+  AUDIO
+  VIDEO
+}
+
+enum CallStatus {
+  PENDING
+  ACTIVE
+  ENDED
+  MISSED
+  REJECTED
+}
+
+enum ParticipantRole {
+  MEMBER
+  ADMIN
+  OWNER
+}
+
+// ---------------------------------------------------------------------------
+// User
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String     @id @default(uuid())
+  username     String     @unique
+  email        String     @unique
+  passwordHash String
+  /// X25519 public key (base64 encoded, 32 bytes) — used for E2E key exchange
+  publicKey    String?
+  avatar       String?
+  bio          String?
+  status       UserStatus @default(OFFLINE)
+  lastSeen     DateTime?
+  isVerified   Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  refreshTokens            RefreshToken[]
+  conversationParticipants ConversationParticipant[]
+  sentMessages             Message[]                 @relation("MessageSender")
+  messageReads             MessageRead[]
+  callParticipants         CallParticipant[]
+  initiatedCalls           Call[]                    @relation("CallInitiator")
+
+  @@index([email])
+  @@index([username])
+}
+
+// ---------------------------------------------------------------------------
+// Authentication
+// ---------------------------------------------------------------------------
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  /// SHA-256 hash of the raw token — never store raw tokens
+  tokenHash String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+// ---------------------------------------------------------------------------
+// Conversations
+// ---------------------------------------------------------------------------
+
+model Conversation {
+  id            String           @id @default(uuid())
+  type          ConversationType
+  /// Display name — required for GROUP, null for DIRECT
+  name          String?
+  avatar        String?
+  description   String?
+  /// Denormalized: updated whenever a new message is stored (for inbox sorting)
+  lastMessageAt DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+  calls        Call[]
+
+  @@index([lastMessageAt])
+}
+
+model ConversationParticipant {
+  conversationId String
+  userId         String
+  role           ParticipantRole @default(MEMBER)
+  /// If set, notifications are suppressed until this datetime
+  mutedUntil     DateTime?
+  joinedAt       DateTime        @default(now())
+  /// Set when user leaves a group; null means still active
+  leftAt         DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Messages — Server stores ONLY encrypted ciphertext, never plaintext
+// ---------------------------------------------------------------------------
+
+model Message {
+  id               String      @id @default(uuid())
+  conversationId   String
+  senderId         String
+  /// Base64-encoded XSalsa20-Poly1305 ciphertext — decrypted only by clients
+  encryptedContent String
+  /// Base64-encoded nonce used for this specific message
+  nonce            String
+  contentType      ContentType @default(TEXT)
+  /// Optional pre-signed URL for media attachments
+  mediaUrl         String?
+  replyToId        String?
+  isEdited         Boolean     @default(false)
+  /// Soft delete: content is wiped, deletedAt is set
+  deletedAt        DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("MessageSender", fields: [senderId], references: [id])
+  replyTo      Message?     @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies      Message[]    @relation("MessageReplies")
+  reads        MessageRead[]
+  media        Media[]
+
+  /// Compound index enables efficient cursor-based pagination per conversation
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+/// Tracks which users have read which messages — powers read receipts
+model MessageRead {
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Media
+// ---------------------------------------------------------------------------
+
+model Media {
+  id        String   @id @default(uuid())
+  messageId String
+  url       String
+  mimeType  String
+  /// File size in bytes
+  size      Int
+  /// Width in pixels (images/videos only)
+  width     Int?
+  /// Height in pixels (images/videos only)
+  height    Int?
+  /// Duration in seconds (audio/video only)
+  duration  Float?
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+// ---------------------------------------------------------------------------
+// Calls (WebRTC signaling via Socket.IO)
+// ---------------------------------------------------------------------------
+
+model Call {
+  id             String     @id @default(uuid())
+  conversationId String
+  callType       CallType
+  status         CallStatus @default(PENDING)
+  initiatorId    String
+  startedAt      DateTime   @default(now())
+  endedAt        DateTime?
+
+  conversation Conversation      @relation(fields: [conversationId], references: [id])
+  initiator    User              @relation("CallInitiator", fields: [initiatorId], references: [id])
+  participants CallParticipant[]
+
+  @@index([conversationId])
+  @@index([initiatorId])
+}
+
+model CallParticipant {
+  callId         String
+  userId         String
+  joinedAt       DateTime  @default(now())
+  leftAt         DateTime?
+  isVideoEnabled Boolean   @default(false)
+  isAudioEnabled Boolean   @default(true)
+
+  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@id([callId, userId])
+  @@index([userId])
+}
