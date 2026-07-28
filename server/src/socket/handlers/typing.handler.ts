@@ -4,7 +4,7 @@
  * Uses Redis TTL to auto-expire typing indicators.
  * If a client disconnects mid-typing, the indicator disappears after TYPING_TTL_SECONDS.
  *
- * Redis key: conv:typing:{conversationId}:{userId}  →  TTL = 5s
+ * Redis key: conversation:typing:{conversationId}:{userId}  →  TTL = 5s
  *
  * The client should emit typing:start periodically while typing (every 2-3s)
  * and typing:stop on key-up pause or send.
@@ -24,11 +24,11 @@ export function registerTypingHandlers(
 
   socket.on('typing:start', async ({ conversationId }) => {
     try {
-      const key = `conv:typing:${conversationId}:${userId}`;
+      const key = `conversation:typing:${conversationId}:${userId}`;
       await redis.setex(key, CONSTANTS.TYPING_TTL_SECONDS, '1');
 
       // Broadcast to all OTHER members in the conversation room
-      socket.to(`conv:${conversationId}`).emit('typing:update', {
+      socket.to(`conversation:${conversationId}`).emit('typing:update', {
         conversationId,
         userId,
         isTyping: true,
@@ -40,10 +40,10 @@ export function registerTypingHandlers(
 
   socket.on('typing:stop', async ({ conversationId }) => {
     try {
-      const key = `conv:typing:${conversationId}:${userId}`;
+      const key = `conversation:typing:${conversationId}:${userId}`;
       await redis.del(key);
 
-      socket.to(`conv:${conversationId}`).emit('typing:update', {
+      socket.to(`conversation:${conversationId}`).emit('typing:update', {
         conversationId,
         userId,
         isTyping: false,
@@ -57,7 +57,7 @@ export function registerTypingHandlers(
   socket.on('disconnect', async () => {
     // Find all active typing keys for this user and clean them up
     try {
-      const keys = await redis.keys(`conv:typing:*:${userId}`);
+      const keys = await redis.keys(`conversation:typing:*:${userId}`);
       if (keys.length > 0) {
         await redis.del(...keys);
         // Notify conversations this user was typing in
@@ -65,7 +65,7 @@ export function registerTypingHandlers(
           const parts = key.split(':');
           const conversationId = parts[2];
           if (conversationId) {
-            io.to(`conv:${conversationId}`).emit('typing:update', {
+            io.to(`conversation:${conversationId}`).emit('typing:update', {
               conversationId,
               userId,
               isTyping: false,

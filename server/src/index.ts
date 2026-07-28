@@ -22,7 +22,7 @@ import { logger } from './lib/logger.js';
 import { connectRedis, disconnectRedis } from './lib/redis.js';
 import { connectDB, disconnectDB } from './lib/prisma.js';
 import { startWorkers, stopWorkers } from './jobs/queues.js';
-import { initSocketServer } from './socket/index.js';
+import { initSocketServer, getIO } from './socket/index.js';
 import app from './app.js';
 
 const httpServer = createServer(app);
@@ -90,7 +90,15 @@ async function shutdown(signal: string): Promise<void> {
     // 2. Drain and stop BullMQ workers
     await stopWorkers();
 
-    // 3. Disconnect infrastructure
+    // 3. Close Socket.IO server
+    try {
+      getIO().close();
+      logger.info('Socket.IO server closed');
+    } catch (err) {
+      logger.warn({ err }, 'Error closing Socket.IO server or not initialized');
+    }
+
+    // 4. Disconnect infrastructure
     await Promise.all([disconnectRedis(), disconnectDB()]);
 
     clearTimeout(forceExitTimer);

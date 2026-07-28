@@ -17,6 +17,7 @@ import { getRedisPub, getRedisSub } from "../lib/redis.js";
 import { env } from "../config/env.js";
 import { logger } from "../lib/logger.js";
 import { socketAuthMiddleware } from "./middleware/socketAuth.js";
+import { checkSocketEventLimit } from "../middleware/rateLimiter.js";
 import { registerPresenceHandlers } from "./handlers/presence.handler.js";
 import { registerMessageHandlers } from "./handlers/message.handler.js";
 import { registerTypingHandlers } from "./handlers/typing.handler.js";
@@ -60,6 +61,19 @@ export function initSocketServer(httpServer: HTTPServer): TypedServer {
   // Connection lifecycle
   io.on("connection", (socket: TypedSocket) => {
     const { userId } = socket.data;
+
+    // Per-user event throttling
+    socket.use(async ([event, ..._args], next) => {
+      // Internal events don't count
+      if (event === "disconnect" || event === "error") return next();
+
+      const allowed = await checkSocketEventLimit(userId);
+      if (!allowed) {
+        logger.warn({ userId, event }, "Socket event rate limit exceeded");
+        return next(new Error("Rate limit exceeded. Please slow down."));
+      }
+      next();
+    });
 
     logger.info(
       { userId, socketId: socket.id, transport: socket.conn.transport.name },

@@ -5,15 +5,15 @@
  * Handles request/response transformation only.
  */
 
-import type { Request, Response, NextFunction } from 'express';
-import * as authService from './auth.service.js';
-import { sendSuccess, sendCreated } from '../../utils/response.js';
+import type { Request, Response, NextFunction } from "express";
+import * as authService from "./auth.service.js";
+import { sendSuccess, sendCreated } from "../../utils/response.js";
 import type {
   RegisterInput,
   LoginInput,
   RefreshTokenInput,
   LogoutInput,
-} from './auth.schema.js';
+} from "./auth.schema.js";
 
 export async function register(
   req: Request<object, object, RegisterInput>,
@@ -22,7 +22,7 @@ export async function register(
 ): Promise<void> {
   try {
     const result = await authService.registerUser(req.body);
-    sendCreated(res, result, 'Registration successful');
+    sendCreated(res, result, "Registration successful");
   } catch (err) {
     next(err);
   }
@@ -34,8 +34,9 @@ export async function login(
   next: NextFunction,
 ): Promise<void> {
   try {
+    console.log("Login body ------ ", req?.body);
     const result = await authService.loginUser(req.body);
-    sendSuccess(res, result, 'Login successful');
+    sendSuccess(res, result, "Login successful");
   } catch (err) {
     next(err);
   }
@@ -48,7 +49,7 @@ export async function refresh(
 ): Promise<void> {
   try {
     const tokens = await authService.refreshTokens(req.body);
-    sendSuccess(res, tokens, 'Tokens refreshed');
+    sendSuccess(res, tokens, "Tokens refreshed");
   } catch (err) {
     next(err);
   }
@@ -61,7 +62,7 @@ export async function logout(
 ): Promise<void> {
   try {
     await authService.logoutUser(req.body.refreshToken);
-    sendSuccess(res, null, 'Logged out successfully');
+    sendSuccess(res, null, "Logged out successfully");
   } catch (err) {
     next(err);
   }

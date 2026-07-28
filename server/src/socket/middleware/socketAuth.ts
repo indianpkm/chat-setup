@@ -14,10 +14,10 @@ import type { Socket } from 'socket.io';
 import { verifyAccessToken } from '../../utils/jwt.js';
 import { logger } from '../../lib/logger.js';
 
-export function socketAuthMiddleware(
+export async function socketAuthMiddleware(
   socket: Socket,
   next: (err?: Error) => void,
-): void {
+): Promise<void> {
   try {
     // Primary: handshake auth token (set in client: io({ auth: { token } }))
     const token =
@@ -29,8 +29,20 @@ export function socketAuthMiddleware(
     }
 
     const payload = verifyAccessToken(token);
-    socket.data.userId = payload.sub;
-    socket.data.email = payload.email;
+
+    // Strict validation: Check if user still exists in DB
+    const { prisma } = await import('../../lib/prisma.js');
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, email: true },
+    });
+
+    if (!user) {
+      return next(new Error('Authentication failed: user no longer exists'));
+    }
+
+    socket.data.userId = user.id;
+    socket.data.email = user.email;
 
     logger.debug(
       { userId: payload.sub, socketId: socket.id },

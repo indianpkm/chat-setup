@@ -8,7 +8,7 @@
 
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
-import type { CallStatus, CallType } from '../../../generated/prisma/client.js';
+import type { CallStatus, CallType } from "@prisma/client";
 
 const callSelect = {
   id: true,

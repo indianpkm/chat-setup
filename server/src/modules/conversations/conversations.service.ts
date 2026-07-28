@@ -10,37 +10,37 @@
  *   - leftAt-based membership — participants who left are filtered out
  */
 
-import { z } from 'zod';
-import { prisma } from '../../lib/prisma.js';
-import { AppError } from '../../middleware/errorHandler.js';
-import { CONSTANTS } from '../../config/constants.js';
+import { z } from "zod";
+import { prisma } from "../../lib/prisma.js";
+import { AppError } from "../../middleware/errorHandler.js";
+import { CONSTANTS } from "../../config/constants.js";
 
 // ---------------------------------------------------------------------------
 // Schemas
 // ---------------------------------------------------------------------------
 
 export const createDMSchema = z.object({
-  recipientId: z.string().uuid('Invalid recipient ID'),
+  recipientId: z.uuid("Invalid recipient ID"),
 });
 
 export const createGroupSchema = z.object({
   name: z.string().min(1).max(60),
   description: z.string().max(256).optional(),
-  avatar: z.string().url().optional(),
+  avatar: z.url().optional(),
   participantIds: z
     .array(z.string().uuid())
-    .min(1, 'At least one other participant is required')
+    .min(1, "At least one other participant is required")
     .max(CONSTANTS.MAX_GROUP_MEMBERS - 1),
 });
 
 export const updateGroupSchema = z.object({
   name: z.string().min(1).max(60).optional(),
   description: z.string().max(256).optional(),
-  avatar: z.string().url().optional(),
+  avatar: z.url().optional(),
 });
 
 export const addParticipantsSchema = z.object({
-  userIds: z.array(z.string().uuid()).min(1).max(50),
+  userIds: z.array(z.uuid()).min(1).max(50),
 });
 
 export type CreateDMInput = z.infer<typeof createDMSchema>;
@@ -93,19 +93,19 @@ export async function getUserConversations(userId: string) {
         select: participantSelect,
       },
       messages: {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         take: 1,
         select: lastMessageSelect,
       },
     },
-    orderBy: { lastMessageAt: 'desc' },
+    orderBy: { lastMessageAt: "desc" },
   });
 }
 
 /** Get or create a DIRECT conversation between two users (idempotent) */
 export async function getOrCreateDM(userId: string, recipientId: string) {
   if (userId === recipientId) {
-    throw new AppError('Cannot create a conversation with yourself', 400);
+    throw new AppError("Cannot create a conversation with yourself", 400);
   }
 
   // Check recipient exists
@@ -113,12 +113,13 @@ export async function getOrCreateDM(userId: string, recipientId: string) {
     where: { id: recipientId },
     select: { id: true },
   });
-  if (!recipient) throw new AppError('Recipient user not found', 404);
+
+  if (!recipient) throw new AppError("Recipient user not found", 404);
 
   // Check for existing DM (both must be active participants)
   const existing = await prisma.conversation.findFirst({
     where: {
-      type: 'DIRECT',
+      type: "DIRECT",
       participants: {
         every: {
           userId: { in: [userId, recipientId] },
@@ -138,11 +139,11 @@ export async function getOrCreateDM(userId: string, recipientId: string) {
 
   const conversation = await prisma.conversation.create({
     data: {
-      type: 'DIRECT',
+      type: "DIRECT",
       participants: {
         create: [
-          { userId, role: 'OWNER' },
-          { userId: recipientId, role: 'MEMBER' },
+          { userId, role: "OWNER" },
+          { userId: recipientId, role: "MEMBER" },
         ],
       },
     },
@@ -158,10 +159,7 @@ export async function getOrCreateDM(userId: string, recipientId: string) {
 }
 
 /** Create a GROUP conversation */
-export async function createGroup(
-  creatorId: string,
-  input: CreateGroupInput,
-) {
+export async function createGroup(creatorId: string, input: CreateGroupInput) {
   const { name, description, avatar, participantIds } = input;
 
   const uniqueIds = [...new Set([creatorId, ...participantIds])];
@@ -180,19 +178,19 @@ export async function createGroup(
   });
 
   if (users.length !== uniqueIds.length) {
-    throw new AppError('One or more participant IDs are invalid', 400);
+    throw new AppError("One or more participant IDs are invalid", 400);
   }
 
   return prisma.conversation.create({
     data: {
-      type: 'GROUP',
+      type: "GROUP",
       name,
       description,
       avatar,
       participants: {
         create: uniqueIds.map((id) => ({
           userId: id,
-          role: id === creatorId ? 'OWNER' : 'MEMBER',
+          role: id === creatorId ? "OWNER" : "MEMBER",
         })),
       },
     },
@@ -223,7 +221,7 @@ export async function getConversationById(
     },
   });
 
-  if (!conversation) throw new AppError('Conversation not found', 404);
+  if (!conversation) throw new AppError("Conversation not found", 404);
   return conversation;
 }
 
@@ -239,13 +237,13 @@ export async function updateGroup(
   });
 
   if (!membership || membership.leftAt) {
-    throw new AppError('Conversation not found', 404);
+    throw new AppError("Conversation not found", 404);
   }
-  if (membership.conversation.type !== 'GROUP') {
-    throw new AppError('Cannot update a direct conversation', 400);
+  if (membership.conversation.type !== "GROUP") {
+    throw new AppError("Cannot update a direct conversation", 400);
   }
-  if (membership.role === 'MEMBER') {
-    throw new AppError('Only admins can update group details', 403);
+  if (membership.role === "MEMBER") {
+    throw new AppError("Only admins can update group details", 403);
   }
 
   return prisma.conversation.update({
@@ -270,8 +268,8 @@ export async function addParticipants(
     where: { conversationId_userId: { conversationId, userId: requesterId } },
   });
 
-  if (!membership || membership.leftAt || membership.role === 'MEMBER') {
-    throw new AppError('Only admins can add participants', 403);
+  if (!membership || membership.leftAt || membership.role === "MEMBER") {
+    throw new AppError("Only admins can add participants", 403);
   }
 
   // Upsert — re-adds previously removed participants
@@ -279,7 +277,7 @@ export async function addParticipants(
     userIds.map((userId) =>
       prisma.conversationParticipant.upsert({
         where: { conversationId_userId: { conversationId, userId } },
-        create: { conversationId, userId, role: 'MEMBER' },
+        create: { conversationId, userId, role: "MEMBER" },
         update: { leftAt: null },
       }),
     ),
@@ -297,17 +295,20 @@ export async function removeParticipant(
       where: { conversationId_userId: { conversationId, userId: requesterId } },
     }),
     prisma.conversationParticipant.findUnique({
-      where: { conversationId_userId: { conversationId, userId: targetUserId } },
+      where: {
+        conversationId_userId: { conversationId, userId: targetUserId },
+      },
     }),
   ]);
 
-  if (!requester || requester.leftAt) throw new AppError('Access denied', 403);
+  if (!requester || requester.leftAt) throw new AppError("Access denied", 403);
   if (!target || target.leftAt)
-    throw new AppError('Participant not found', 404);
+    throw new AppError("Participant not found", 404);
 
-  if (requester.role === 'MEMBER') throw new AppError('Only admins can remove participants', 403);
-  if (requester.role === 'ADMIN' && target.role !== 'MEMBER') {
-    throw new AppError('Admins can only remove members', 403);
+  if (requester.role === "MEMBER")
+    throw new AppError("Only admins can remove participants", 403);
+  if (requester.role === "ADMIN" && target.role !== "MEMBER") {
+    throw new AppError("Admins can only remove members", 403);
   }
 
   await prisma.conversationParticipant.update({
@@ -326,9 +327,9 @@ export async function leaveConversation(
     include: { conversation: { select: { type: true } } },
   });
 
-  if (!membership || membership.leftAt) throw new AppError('Not a member', 404);
-  if (membership.conversation.type === 'DIRECT') {
-    throw new AppError('Cannot leave a direct conversation', 400);
+  if (!membership || membership.leftAt) throw new AppError("Not a member", 404);
+  if (membership.conversation.type === "DIRECT") {
+    throw new AppError("Cannot leave a direct conversation", 400);
   }
 
   await prisma.conversationParticipant.update({

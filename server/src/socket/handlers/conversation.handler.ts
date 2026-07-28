@@ -5,7 +5,7 @@
  * immediately after connection. This ensures they receive real-time events
  * (new messages, typing indicators, etc.) for all their conversations.
  *
- * Room naming:  conv:{conversationId}
+ * Room naming:  conversation:{conversationId}
  * User room:    user:{userId}  — for direct (call incoming, etc.)
  */
 
@@ -33,12 +33,14 @@ async function joinUserConversationRooms(
       select: { conversationId: true },
     });
 
-    const rooms = participants.map((p) => `conv:${p.conversationId}`);
+    const rooms = participants.map((p) => `conversation:${p.conversationId}`);
 
     if (rooms.length > 0) {
-      socket.join(rooms);
+      // Use Set to avoid duplicate room joins (idempotency)
+      const uniqueRooms = Array.from(new Set(rooms));
+      socket.join(uniqueRooms);
       logger.debug(
-        { userId, roomCount: rooms.length },
+        { userId, roomCount: uniqueRooms.length },
         'Socket joined conversation rooms',
       );
     }
@@ -59,5 +61,5 @@ export function emitToConversation(
   ...args: any[]
 ): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (io.to(`conv:${conversationId}`) as any).emit(event, ...args);
+  (io.to(`conversation:${conversationId}`) as any).emit(event, ...args);
 }

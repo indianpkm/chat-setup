@@ -42,6 +42,8 @@ function createLimiter(
 // Lazy-initialized singletons (Redis must be connected before first use)
 let _authLimiter: RateLimiterRedis | null = null;
 let _apiLimiter: RateLimiterRedis | null = null;
+let _socketMsgLimiter: RateLimiterRedis | null = null;
+let _socketEventLimiter: RateLimiterRedis | null = null;
 
 function getAuthLimiter(): RateLimiterRedis {
   return (_authLimiter ??= createLimiter(
@@ -57,6 +59,22 @@ function getApiLimiter(): RateLimiterRedis {
     'rl:api',
     CONSTANTS.RATE_LIMIT.API.points,
     CONSTANTS.RATE_LIMIT.API.duration,
+  ));
+}
+
+function getSocketMsgLimiter(): RateLimiterRedis {
+  return (_socketMsgLimiter ??= createLimiter(
+    'rl:socket:msg',
+    CONSTANTS.RATE_LIMIT.SOCKET_MSG.points,
+    CONSTANTS.RATE_LIMIT.SOCKET_MSG.duration,
+  ));
+}
+
+function getSocketEventLimiter(): RateLimiterRedis {
+  return (_socketEventLimiter ??= createLimiter(
+    'rl:socket:event',
+    100, // 100 events
+    60,  // per 60 seconds
   ));
 }
 
@@ -105,7 +123,7 @@ export function apiRateLimiter(
   res: Response,
   next: NextFunction,
 ): void {
-  const key = req.user?.id ?? req.ip ?? 'unknown';
+  const key = (req as any).user?.id ?? req.ip ?? 'unknown';
 
   getApiLimiter()
     .consume(key)
@@ -126,6 +144,10 @@ export function apiRateLimiter(
     });
 }
 
+// ---------------------------------------------------------------------------
+// Socket utilities
+// ---------------------------------------------------------------------------
+
 /**
  * Socket message rate limiter — call this inside socket event handlers.
  * Returns true if allowed, false if rate-limited.
@@ -133,14 +155,22 @@ export function apiRateLimiter(
 export async function checkSocketMessageLimit(
   userId: string,
 ): Promise<boolean> {
-  const limiter = createLimiter(
-    'rl:socket:msg',
-    CONSTANTS.RATE_LIMIT.SOCKET_MSG.points,
-    CONSTANTS.RATE_LIMIT.SOCKET_MSG.duration,
-  );
-
   try {
-    await limiter.consume(userId);
+    await getSocketMsgLimiter().consume(userId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * General socket event rate limiter.
+ */
+export async function checkSocketEventLimit(
+  userId: string,
+): Promise<boolean> {
+  try {
+    await getSocketEventLimiter().consume(userId);
     return true;
   } catch {
     return false;

@@ -29,7 +29,7 @@ const envSchema = z.object({
     .string()
     .min(32, "JWT_REFRESH_SECRET must be at least 32 characters"),
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
-  JWT_REFRESH_EXPIRES_IN: z.string().default("7=30d"),
+  JWT_REFRESH_EXPIRES_IN: z.string().default("30d"),
 
   // CORS
   CORS_ORIGINS: z.string().default("http://localhost:3000"),

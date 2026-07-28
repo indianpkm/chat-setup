@@ -10,7 +10,7 @@
 
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
-import type { ContentType } from '../../../generated/prisma/client.js';
+import type { ContentType } from "@prisma/client";
 import { CONSTANTS } from '../../config/constants.js';
 
 // ---------------------------------------------------------------------------

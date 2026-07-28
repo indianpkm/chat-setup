@@ -19,7 +19,7 @@ import { notificationQueue } from '../../jobs/queues.js';
 import { checkSocketMessageLimit } from '../../middleware/rateLimiter.js';
 import { logger } from '../../lib/logger.js';
 import type { TypedServer, TypedSocket, SendMessagePayload } from '../../types/socket.js';
-import type { ContentType } from '../../../generated/prisma/client.js';
+import type { ContentType } from "@prisma/client";
 
 export function registerMessageHandlers(
   io: TypedServer,
@@ -50,7 +50,7 @@ export function registerMessageHandlers(
       });
 
       // Broadcast to all members of the conversation room (all instances)
-      io.to(`conv:${payload.conversationId}`).emit('msg:new', {
+      io.to(`conversation:${payload.conversationId}`).emit('msg:new', {
         id: message.id,
         conversationId: message.conversationId,
         senderId: message.senderId,
@@ -105,7 +105,7 @@ export function registerMessageHandlers(
     try {
       const read = await markMessageRead(messageId, userId);
       // Notify all conversation members about the read receipt
-      io.to(`conv:${conversationId}`).emit('msg:read-receipt', {
+      io.to(`conversation:${conversationId}`).emit('msg:read-receipt', {
         messageId,
         userId,
         readAt: read.readAt,
@@ -121,7 +121,7 @@ export function registerMessageHandlers(
   socket.on('msg:delete', async ({ messageId }) => {
     try {
       const result = await deleteMessage(messageId, userId);
-      io.to(`conv:${result.conversationId}`).emit('msg:deleted', {
+      io.to(`conversation:${result.conversationId}`).emit('msg:deleted', {
         messageId,
         conversationId: result.conversationId,
       });

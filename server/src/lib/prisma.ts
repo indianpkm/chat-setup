@@ -7,13 +7,15 @@
  * - Exported connectDB() for explicit connection verification at startup
  */
 
+import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { prismaQueryInsights } from '@prisma/sqlcommenter-query-insights';
 import { env } from '../config/env.js';
 import { logger } from './logger.js';
 
-const adapter = new PrismaPg({ connectionString: env.DATABASE_URL });
+const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
 
 export const prisma = new PrismaClient({
   adapter,
